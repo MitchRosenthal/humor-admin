@@ -44,16 +44,24 @@ export async function middleware(request: NextRequest) {
   }
 
   // Use service role client to bypass RLS for the superadmin check
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  console.log("[middleware] user.id:", user.id);
+  console.log("[middleware] service role key present:", !!serviceRoleKey);
+
   const adminClient = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    serviceRoleKey!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
   );
 
-  const { data: profile } = await adminClient
+  const { data: profile, error: profileError } = await adminClient
     .from("profiles")
     .select("is_superadmin")
     .eq("id", user.id)
     .single();
+
+  console.log("[middleware] profile:", JSON.stringify(profile));
+  console.log("[middleware] profileError:", JSON.stringify(profileError));
 
   if (!profile?.is_superadmin) {
     return NextResponse.redirect(new URL("/login?error=not_superadmin", request.url));
