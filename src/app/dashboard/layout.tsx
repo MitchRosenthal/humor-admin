@@ -25,7 +25,7 @@ export default async function DashboardLayout({
 
   const { data: profile } = await adminClient
     .from("profiles")
-    .select("is_superadmin, username, avatar_url")
+    .select("is_superadmin")
     .eq("id", user.id)
     .single();
 
