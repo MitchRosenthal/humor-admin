@@ -31,18 +31,54 @@ export default async function DashboardLayout({
 
   if (!profile?.is_superadmin) redirect("/login?error=not_superadmin");
 
-  const navItems = [
-    { href: "/dashboard", label: "Stats", icon: "📊" },
-    { href: "/dashboard/users", label: "Users", icon: "👥" },
-    { href: "/dashboard/images", label: "Images", icon: "🖼️" },
-    { href: "/dashboard/captions", label: "Captions", icon: "💬" },
+  const navGroups = [
+    {
+      label: "Overview",
+      items: [
+        { href: "/dashboard", label: "Stats", icon: "📊" },
+        { href: "/dashboard/users", label: "Users", icon: "👥" },
+      ],
+    },
+    {
+      label: "Content",
+      items: [
+        { href: "/dashboard/images", label: "Images", icon: "🖼️" },
+        { href: "/dashboard/captions", label: "Captions", icon: "💬" },
+        { href: "/dashboard/caption-requests", label: "Caption Requests", icon: "📥" },
+        { href: "/dashboard/caption-examples", label: "Caption Examples", icon: "📋" },
+        { href: "/dashboard/terms", label: "Terms", icon: "📖" },
+      ],
+    },
+    {
+      label: "Humor Engine",
+      items: [
+        { href: "/dashboard/humor-flavors", label: "Humor Flavors", icon: "🎭" },
+        { href: "/dashboard/humor-mix", label: "Humor Mix", icon: "🎚️" },
+      ],
+    },
+    {
+      label: "LLM",
+      items: [
+        { href: "/dashboard/llm-providers", label: "Providers", icon: "🏢" },
+        { href: "/dashboard/llm-models", label: "Models", icon: "🤖" },
+        { href: "/dashboard/llm-prompt-chains", label: "Prompt Chains", icon: "⛓️" },
+        { href: "/dashboard/llm-responses", label: "Responses", icon: "📨" },
+      ],
+    },
+    {
+      label: "Access Control",
+      items: [
+        { href: "/dashboard/allowed-domains", label: "Allowed Domains", icon: "🌐" },
+        { href: "/dashboard/whitelisted-emails", label: "Whitelisted Emails", icon: "✉️" },
+      ],
+    },
   ];
 
   return (
     <div className="flex min-h-screen bg-gray-950">
       {/* Sidebar */}
-      <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="p-5 border-b border-gray-800">
+      <aside className="w-56 bg-gray-900 border-r border-gray-800 flex flex-col overflow-y-auto">
+        <div className="p-5 border-b border-gray-800 flex-shrink-0">
           <div className="text-xl font-bold text-white flex items-center gap-2">
             <span>😂</span>
             <span>Humor Admin</span>
@@ -52,20 +88,29 @@ export default async function DashboardLayout({
           </div>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-sm font-medium"
-            >
-              <span>{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
+        <nav className="flex-1 p-3 space-y-4">
+          {navGroups.map((group) => (
+            <div key={group.label}>
+              <p className="px-3 mb-1 text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-gray-300 hover:bg-gray-800 hover:text-white transition-colors text-sm"
+                  >
+                    <span className="text-base">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
-        <div className="p-3 border-t border-gray-800">
+        <div className="p-3 border-t border-gray-800 flex-shrink-0">
           <SignOutButton />
         </div>
       </aside>
