@@ -7,8 +7,8 @@ export default async function CaptionsPage() {
 
   const { data: captions, error } = await supabase
     .from("captions")
-    .select("id, content, image_id, author_id, created_at_utc")
-    .order("created_at_utc", { ascending: false })
+    .select("id, content, image_id, profile_id, created_datetime_utc")
+    .order("created_datetime_utc", { ascending: false })
     .limit(100);
 
   return (
@@ -45,11 +45,11 @@ export default async function CaptionsPage() {
                   {caption.image_id ? caption.image_id.slice(0, 8) + "…" : "—"}
                 </td>
                 <td className="px-5 py-3 text-gray-400 font-mono text-xs">
-                  {caption.author_id ? caption.author_id.slice(0, 8) + "…" : "—"}
+                  {caption.profile_id ? caption.profile_id.slice(0, 8) + "…" : "—"}
                 </td>
                 <td className="px-5 py-3 text-gray-400 text-xs">
-                  {caption.created_at_utc
-                    ? new Date(caption.created_at_utc).toLocaleDateString()
+                  {caption.created_datetime_utc
+                    ? new Date(caption.created_datetime_utc).toLocaleDateString()
                     : "—"}
                 </td>
               </tr>

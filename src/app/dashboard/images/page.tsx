@@ -8,8 +8,8 @@ export default async function ImagesPage() {
 
   const { data: images, error } = await supabase
     .from("images")
-    .select("id, url, description, created_at_utc")
-    .order("created_at_utc", { ascending: false })
+    .select("id, url, created_datetime_utc")
+    .order("created_datetime_utc", { ascending: false })
     .limit(50);
 
   return (

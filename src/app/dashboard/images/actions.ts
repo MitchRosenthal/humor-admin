@@ -11,15 +11,10 @@ export async function createImage(formData: FormData) {
   if (!user) return { error: "Not authenticated" };
 
   const url = formData.get("url") as string;
-  const description = formData.get("description") as string;
 
   if (!url) return { error: "URL is required" };
 
-  const { error } = await supabase.from("images").insert({
-    url,
-    description: description || null,
-    profile_id: user.id,
-  });
+  const { error } = await supabase.from("images").insert({ url });
 
   if (error) return { error: error.message };
 
@@ -30,13 +25,14 @@ export async function createImage(formData: FormData) {
 export async function updateImage(formData: FormData) {
   const supabase = await createClient();
   const id = formData.get("id") as string;
-  const description = formData.get("description") as string;
+  const url = formData.get("url") as string;
 
   if (!id) return { error: "ID is required" };
+  if (!url) return { error: "URL is required" };
 
   const { error } = await supabase
     .from("images")
-    .update({ description: description || null })
+    .update({ url })
     .eq("id", id);
 
   if (error) return { error: error.message };

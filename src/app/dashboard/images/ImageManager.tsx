@@ -7,8 +7,7 @@ import Image from "next/image";
 type ImageRow = {
   id: string;
   url: string;
-  description: string | null;
-  created_at_utc: string | null;
+  created_datetime_utc: string | null;
 };
 
 export function CreateImageForm() {
@@ -43,15 +42,6 @@ export function CreateImageForm() {
             type="url"
             required
             placeholder="https://..."
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-          />
-        </div>
-        <div>
-          <label className="text-sm text-gray-400 block mb-1">Description</label>
-          <input
-            name="description"
-            type="text"
-            placeholder="Optional description"
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
           />
         </div>
@@ -101,7 +91,7 @@ export function ImageCard({ image }: { image: ImageRow }) {
       <div className="relative h-40 bg-gray-800">
         <Image
           src={image.url}
-          alt={image.description ?? "Image"}
+          alt="Image"
           fill
           className="object-cover"
           unoptimized
@@ -111,9 +101,11 @@ export function ImageCard({ image }: { image: ImageRow }) {
         {editing ? (
           <form onSubmit={handleUpdate} className="space-y-2">
             <input
-              name="description"
-              defaultValue={image.description ?? ""}
-              placeholder="Description"
+              name="url"
+              defaultValue={image.url}
+              placeholder="Image URL"
+              type="url"
+              required
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-blue-500"
             />
             {error && <p className="text-red-400 text-xs">{error}</p>}
@@ -136,12 +128,9 @@ export function ImageCard({ image }: { image: ImageRow }) {
           </form>
         ) : (
           <>
-            <p className="text-sm text-gray-300 line-clamp-2 mb-1 min-h-[2.5rem]">
-              {image.description ?? <span className="text-gray-500 italic">No description</span>}
-            </p>
             <p className="text-xs text-gray-500 mb-3">
-              {image.created_at_utc
-                ? new Date(image.created_at_utc).toLocaleDateString()
+              {image.created_datetime_utc
+                ? new Date(image.created_datetime_utc).toLocaleDateString()
                 : "—"}
             </p>
             {error && <p className="text-red-400 text-xs mb-2">{error}</p>}

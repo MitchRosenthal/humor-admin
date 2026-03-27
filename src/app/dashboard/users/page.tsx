@@ -7,8 +7,8 @@ export default async function UsersPage() {
 
   const { data: profiles, error } = await supabase
     .from("profiles")
-    .select("id, username, is_superadmin, created_at_utc")
-    .order("created_at_utc", { ascending: false })
+    .select("id, first_name, last_name, email, is_superadmin, created_datetime_utc")
+    .order("created_datetime_utc", { ascending: false })
     .limit(100);
 
   return (
@@ -26,8 +26,8 @@ export default async function UsersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-800 bg-gray-800/50">
-              <th className="text-left px-5 py-3 text-gray-400 font-medium">Username</th>
-              <th className="text-left px-5 py-3 text-gray-400 font-medium">ID</th>
+              <th className="text-left px-5 py-3 text-gray-400 font-medium">Name</th>
+              <th className="text-left px-5 py-3 text-gray-400 font-medium">Email</th>
               <th className="text-left px-5 py-3 text-gray-400 font-medium">Superadmin</th>
               <th className="text-left px-5 py-3 text-gray-400 font-medium">Joined</th>
             </tr>
@@ -39,10 +39,12 @@ export default async function UsersPage() {
                 className="border-b border-gray-800/60 hover:bg-gray-800/30 transition-colors"
               >
                 <td className="px-5 py-3 text-white font-medium">
-                  {profile.username ?? <span className="text-gray-500 italic">No username</span>}
+                  {profile.first_name || profile.last_name
+                    ? `${profile.first_name ?? ""} ${profile.last_name ?? ""}`.trim()
+                    : <span className="text-gray-500 italic">No name</span>}
                 </td>
-                <td className="px-5 py-3 text-gray-400 font-mono text-xs">
-                  {profile.id.slice(0, 8)}…
+                <td className="px-5 py-3 text-gray-400 text-xs">
+                  {profile.email ?? "—"}
                 </td>
                 <td className="px-5 py-3">
                   {profile.is_superadmin ? (
@@ -54,8 +56,8 @@ export default async function UsersPage() {
                   )}
                 </td>
                 <td className="px-5 py-3 text-gray-400">
-                  {profile.created_at_utc
-                    ? new Date(profile.created_at_utc).toLocaleDateString()
+                  {profile.created_datetime_utc
+                    ? new Date(profile.created_datetime_utc).toLocaleDateString()
                     : "—"}
                 </td>
               </tr>
