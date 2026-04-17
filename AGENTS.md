@@ -65,3 +65,13 @@ For full schema details, refer to Supabase dashboard → Table Editor.
 4. Keep a running note of what changed when making multiple edits.
 5. Server actions live in `actions.ts` files beside their page.
 6. Use Server Components for data fetching; Client Components only when interactivity is required.
+
+## Changelog
+
+### 2026-04-17
+- **Dashboard (`src/app/dashboard/page.tsx`)**: Replaced the "Top Caption Authors" panel with a "Caption Rating Stats" panel. The new panel shows:
+  - Rating coverage (how many captions have received at least one vote, with a progress bar)
+  - Average votes per rated caption
+  - Net score distribution (count of captions with positive, neutral, and negative net scores)
+  - Most voted captions (top 3 by total vote volume, showing vote count and net score)
+- Consolidated data fetching: replaced three separate `caption_votes` queries with a single query (limit 5,000) that drives all stats computation. Also removed the `captions.select("author_id")` query that was only used for the author leaderboard.

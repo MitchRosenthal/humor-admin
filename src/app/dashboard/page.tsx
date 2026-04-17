@@ -10,44 +10,35 @@ async function getStats() {
     { count: totalCaptions },
     { count: totalUsers },
     { count: totalVotes },
-    { data: topCaptions },
-    { data: mostActiveUsers },
+    { data: allCaptionVotes },
     { data: recentImages },
-    { data: voteBreakdown },
   ] = await Promise.all([
     supabase.from("images").select("*", { count: "exact", head: true }),
     supabase.from("captions").select("*", { count: "exact", head: true }),
     supabase.from("profiles").select("*", { count: "exact", head: true }),
     supabase.from("caption_votes").select("*", { count: "exact", head: true }),
-    // Top 5 captions by net upvotes
+    // Fetch caption votes for all stats computation
     supabase
       .from("caption_votes")
       .select("caption_id, vote_value")
-      .order("vote_value", { ascending: false })
-      .limit(200),
-    // Most active users by caption count
-    supabase
-      .from("captions")
-      .select("author_id")
-      .limit(500),
+      .limit(5000),
     // 5 most recent images
     supabase
       .from("images")
       .select("id, url, created_at_utc")
       .order("created_at_utc", { ascending: false })
       .limit(5),
-    // Upvotes vs downvotes
-    supabase
-      .from("caption_votes")
-      .select("vote_value")
-      .limit(2000),
   ]);
 
-  // Compute net score per caption
+  // Compute net score per caption from all fetched votes
   const scoreMap: Record<string, number> = {};
-  for (const v of topCaptions ?? []) {
+  const voteCountMap: Record<string, number> = {};
+  for (const v of allCaptionVotes ?? []) {
     scoreMap[v.caption_id] = (scoreMap[v.caption_id] ?? 0) + v.vote_value;
+    voteCountMap[v.caption_id] = (voteCountMap[v.caption_id] ?? 0) + 1;
   }
+
+  // Top 5 captions by net score
   const topCaptionIds = Object.entries(scoreMap)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
@@ -69,35 +60,40 @@ async function getStats() {
     }));
   }
 
-  // Author activity
-  const authorCount: Record<string, number> = {};
-  for (const c of mostActiveUsers ?? []) {
-    if (c.author_id) authorCount[c.author_id] = (authorCount[c.author_id] ?? 0) + 1;
-  }
-  const topAuthorIds = Object.entries(authorCount)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+  // Vote sentiment
+  const upvotes = (allCaptionVotes ?? []).filter((v) => v.vote_value > 0).length;
+  const downvotes = (allCaptionVotes ?? []).filter((v) => v.vote_value < 0).length;
+  const upvotePct = upvotes + downvotes > 0 ? Math.round((upvotes / (upvotes + downvotes)) * 100) : 0;
 
-  let topAuthorDetails: { id: string; username: string; count: number }[] = [];
-  if (topAuthorIds.length > 0) {
-    const { data: authorProfiles } = await supabase
-      .from("profiles")
-      .select("id, username")
-      .in(
-        "id",
-        topAuthorIds.map(([id]) => id)
-      );
-    topAuthorDetails = topAuthorIds.map(([id, count]) => ({
+  // Caption rating stats
+  const ratedCaptionIds = Object.keys(scoreMap);
+  const ratedCaptions = ratedCaptionIds.length;
+  const ratedPct = (totalCaptions ?? 0) > 0 ? Math.round((ratedCaptions / (totalCaptions ?? 1)) * 100) : 0;
+  const avgVotesPerRated = ratedCaptions > 0 ? (totalVotes ?? 0) / ratedCaptions : 0;
+
+  // Score distribution among rated captions
+  const positiveCount = ratedCaptionIds.filter((id) => scoreMap[id] > 0).length;
+  const negativeCount = ratedCaptionIds.filter((id) => scoreMap[id] < 0).length;
+  const neutralCount = ratedCaptionIds.filter((id) => scoreMap[id] === 0).length;
+
+  // Most voted captions (by total vote count, regardless of direction)
+  const mostVotedIds = Object.entries(voteCountMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  let mostVotedDetails: { id: string; content: string; voteCount: number; netScore: number }[] = [];
+  if (mostVotedIds.length > 0) {
+    const { data: mvTexts } = await supabase
+      .from("captions")
+      .select("id, content")
+      .in("id", mostVotedIds.map(([id]) => id));
+    mostVotedDetails = mostVotedIds.map(([id, voteCount]) => ({
       id,
-      username: authorProfiles?.find((p) => p.id === id)?.username ?? "unknown",
-      count,
+      content: mvTexts?.find((c) => c.id === id)?.content ?? "—",
+      voteCount,
+      netScore: scoreMap[id] ?? 0,
     }));
   }
-
-  // Vote breakdown
-  const upvotes = voteBreakdown?.filter((v) => v.vote_value > 0).length ?? 0;
-  const downvotes = voteBreakdown?.filter((v) => v.vote_value < 0).length ?? 0;
-  const upvotePct = upvotes + downvotes > 0 ? Math.round((upvotes / (upvotes + downvotes)) * 100) : 0;
 
   return {
     totalImages: totalImages ?? 0,
@@ -105,11 +101,17 @@ async function getStats() {
     totalUsers: totalUsers ?? 0,
     totalVotes: totalVotes ?? 0,
     topCaptionDetails,
-    topAuthorDetails,
     recentImages: recentImages ?? [],
     upvotes,
     downvotes,
     upvotePct,
+    ratedCaptions,
+    ratedPct,
+    avgVotesPerRated,
+    positiveCount,
+    negativeCount,
+    neutralCount,
+    mostVotedDetails,
   };
 }
 
@@ -147,7 +149,7 @@ export default async function DashboardPage() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-1">Vote Sentiment</h2>
           <p className="text-gray-400 text-sm mb-4">
-            {stats.upvotes.toLocaleString()} upvotes · {stats.downvotes.toLocaleString()} downvotes (sample of 2k)
+            {stats.upvotes.toLocaleString()} upvotes · {stats.downvotes.toLocaleString()} downvotes
           </p>
           <div className="w-full bg-gray-800 rounded-full h-5 overflow-hidden">
             <div
@@ -211,31 +213,71 @@ export default async function DashboardPage() {
           )}
         </div>
 
-        {/* Most Active Caption Authors */}
+        {/* Caption Rating Stats */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">✍️ Top Caption Authors</h2>
-          {stats.topAuthorDetails.length === 0 ? (
-            <p className="text-gray-500 text-sm">No author data yet.</p>
-          ) : (
-            <ol className="space-y-3">
-              {stats.topAuthorDetails.map((a, i) => (
-                <li key={a.id} className="flex items-center gap-3">
-                  <span className="text-gray-500 text-sm font-mono w-4">{i + 1}.</span>
-                  <span className="flex-1 text-sm text-gray-200 truncate">{a.username}</span>
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="h-2 bg-blue-500 rounded-full"
-                      style={{
-                        width: `${Math.max(20, (a.count / stats.topAuthorDetails[0].count) * 80)}px`,
-                      }}
-                    />
-                    <span className="text-sm text-blue-300 font-medium w-10 text-right">
-                      {a.count}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ol>
+          <h2 className="text-lg font-semibold text-white mb-4">📊 Caption Rating Stats</h2>
+
+          {/* Rating coverage */}
+          <div className="mb-5">
+            <div className="flex justify-between text-sm mb-1.5">
+              <span className="text-gray-400">Captions Rated</span>
+              <span className="text-white font-medium">
+                {stats.ratedCaptions.toLocaleString()} / {stats.totalCaptions.toLocaleString()}
+              </span>
+            </div>
+            <div className="w-full bg-gray-800 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all"
+                style={{ width: `${stats.ratedPct}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{stats.ratedPct}% of captions have received at least one vote</p>
+          </div>
+
+          {/* Avg votes per rated caption */}
+          <div className="mb-5 flex justify-between items-center border-t border-gray-800 pt-4">
+            <span className="text-gray-400 text-sm">Avg votes per rated caption</span>
+            <span className="text-white font-bold text-xl">{stats.avgVotesPerRated.toFixed(1)}</span>
+          </div>
+
+          {/* Score distribution */}
+          <div className="border-t border-gray-800 pt-4">
+            <p className="text-gray-400 text-sm mb-3">Net score distribution</p>
+            <div className="flex gap-2">
+              <div className="flex-1 bg-green-900/40 border border-green-800 rounded-lg p-3 text-center">
+                <div className="text-green-400 font-bold text-xl">{stats.positiveCount}</div>
+                <div className="text-gray-400 text-xs mt-0.5">👍 Positive</div>
+              </div>
+              <div className="flex-1 bg-gray-800/60 border border-gray-700 rounded-lg p-3 text-center">
+                <div className="text-gray-300 font-bold text-xl">{stats.neutralCount}</div>
+                <div className="text-gray-400 text-xs mt-0.5">😐 Neutral</div>
+              </div>
+              <div className="flex-1 bg-red-900/40 border border-red-800 rounded-lg p-3 text-center">
+                <div className="text-red-400 font-bold text-xl">{stats.negativeCount}</div>
+                <div className="text-gray-400 text-xs mt-0.5">👎 Negative</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Most voted captions */}
+          {stats.mostVotedDetails.length > 0 && (
+            <div className="border-t border-gray-800 pt-4 mt-4">
+              <p className="text-gray-400 text-sm mb-3">Most voted captions</p>
+              <ol className="space-y-2">
+                {stats.mostVotedDetails.map((c, i) => (
+                  <li key={c.id} className="flex items-start gap-3">
+                    <span className="text-gray-500 text-xs font-mono w-4 pt-0.5">{i + 1}.</span>
+                    <p className="flex-1 text-xs text-gray-300 leading-snug line-clamp-2 min-w-0">{c.content}</p>
+                    <div className="shrink-0 text-right">
+                      <div className="text-xs text-gray-400">{c.voteCount} votes</div>
+                      <div className={`text-xs font-medium ${c.netScore >= 0 ? "text-green-400" : "text-red-400"}`}>
+                        {c.netScore > 0 ? "+" : ""}{c.netScore}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
         </div>
       </div>
