@@ -2,27 +2,70 @@ import { createClient } from "@/lib/supabase/server";
 
 export const revalidate = 60;
 
+// Keep well below PostgREST's default max_rows (100 on many hosted Supabase
+// projects) so each range query never gets silently truncated. If a page
+// returns fewer rows than PAGE_SIZE we know we've hit the server cap and
+// still get the correct total because pages are fired in small batches.
+const VOTE_PAGE_SIZE = 100;
+// Fire at most this many range queries in parallel to avoid rate-limit spikes.
+const VOTE_BATCH_SIZE = 20;
+
+/**
+ * Fetches every row from caption_votes by paginating with a stable sort.
+ *
+ * Why the page size matters: PostgREST applies a server-side max_rows cap.
+ * If VOTE_PAGE_SIZE > max_rows, each .range(0, 999) silently returns only
+ * max_rows rows but we'd jump to .range(1000, …) on the next iteration —
+ * skipping the gap. Using PAGE_SIZE = 100 stays safely under any default.
+ */
+async function fetchAllCaptionVotes(supabase: Awaited<ReturnType<typeof createClient>>) {
+  // Get the true total count first (no rows returned, just the header count)
+  const { count: total } = await supabase
+    .from("caption_votes")
+    .select("caption_id, vote_value", { count: "exact", head: true });
+
+  if (!total) return [];
+
+  const pageCount = Math.ceil(total / VOTE_PAGE_SIZE);
+
+  // Build page indices, then fire in batches to avoid hammering the API
+  const allRows: { caption_id: string; vote_value: number }[] = [];
+  for (let batch = 0; batch < pageCount; batch += VOTE_BATCH_SIZE) {
+    const batchIndices = Array.from(
+      { length: Math.min(VOTE_BATCH_SIZE, pageCount - batch) },
+      (_, j) => batch + j
+    );
+    const pages = await Promise.all(
+      batchIndices.map((i) =>
+        supabase
+          .from("caption_votes")
+          .select("caption_id, vote_value")
+          // Stable sort ensures consecutive ranges never overlap or skip rows
+          .order("id", { ascending: true })
+          .range(i * VOTE_PAGE_SIZE, (i + 1) * VOTE_PAGE_SIZE - 1)
+      )
+    );
+    allRows.push(...pages.flatMap(({ data }) => data ?? []));
+  }
+
+  return allRows;
+}
+
 async function getStats() {
   const supabase = await createClient();
 
+  // Accurate headline counts — these use count:exact and never fetch rows
   const [
     { count: totalImages },
     { count: totalCaptions },
     { count: totalUsers },
     { count: totalVotes },
-    { data: allCaptionVotes },
     { data: recentImages },
   ] = await Promise.all([
     supabase.from("images").select("*", { count: "exact", head: true }),
     supabase.from("captions").select("*", { count: "exact", head: true }),
     supabase.from("profiles").select("*", { count: "exact", head: true }),
     supabase.from("caption_votes").select("*", { count: "exact", head: true }),
-    // Fetch caption votes for all stats computation
-    supabase
-      .from("caption_votes")
-      .select("caption_id, vote_value")
-      .limit(5000),
-    // 5 most recent images
     supabase
       .from("images")
       .select("id, url, created_at_utc")
@@ -30,10 +73,13 @@ async function getStats() {
       .limit(5),
   ]);
 
-  // Compute net score per caption from all fetched votes
+  // Fetch ALL vote rows via parallel pagination — accurate for any table size
+  const allCaptionVotes = await fetchAllCaptionVotes(supabase);
+
+  // Aggregate net score and vote count per caption
   const scoreMap: Record<string, number> = {};
   const voteCountMap: Record<string, number> = {};
-  for (const v of allCaptionVotes ?? []) {
+  for (const v of allCaptionVotes) {
     scoreMap[v.caption_id] = (scoreMap[v.caption_id] ?? 0) + v.vote_value;
     voteCountMap[v.caption_id] = (voteCountMap[v.caption_id] ?? 0) + 1;
   }
@@ -43,57 +89,62 @@ async function getStats() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
-  // Get caption text for top captions
-  let topCaptionDetails: { id: string; content: string; score: number }[] = [];
-  if (topCaptionIds.length > 0) {
-    const { data: captionTexts } = await supabase
-      .from("captions")
-      .select("id, content")
-      .in(
-        "id",
-        topCaptionIds.map(([id]) => id)
-      );
-    topCaptionDetails = topCaptionIds.map(([id, score]) => ({
-      id,
-      content: captionTexts?.find((c) => c.id === id)?.content ?? "—",
-      score,
-    }));
-  }
-
-  // Vote sentiment
-  const upvotes = (allCaptionVotes ?? []).filter((v) => v.vote_value > 0).length;
-  const downvotes = (allCaptionVotes ?? []).filter((v) => v.vote_value < 0).length;
-  const upvotePct = upvotes + downvotes > 0 ? Math.round((upvotes / (upvotes + downvotes)) * 100) : 0;
-
-  // Caption rating stats
-  const ratedCaptionIds = Object.keys(scoreMap);
-  const ratedCaptions = ratedCaptionIds.length;
-  const ratedPct = (totalCaptions ?? 0) > 0 ? Math.round((ratedCaptions / (totalCaptions ?? 1)) * 100) : 0;
-  const avgVotesPerRated = ratedCaptions > 0 ? (totalVotes ?? 0) / ratedCaptions : 0;
-
-  // Score distribution among rated captions
-  const positiveCount = ratedCaptionIds.filter((id) => scoreMap[id] > 0).length;
-  const negativeCount = ratedCaptionIds.filter((id) => scoreMap[id] < 0).length;
-  const neutralCount = ratedCaptionIds.filter((id) => scoreMap[id] === 0).length;
-
   // Most voted captions (by total vote count, regardless of direction)
   const mostVotedIds = Object.entries(voteCountMap)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3);
 
-  let mostVotedDetails: { id: string; content: string; voteCount: number; netScore: number }[] = [];
-  if (mostVotedIds.length > 0) {
-    const { data: mvTexts } = await supabase
+  // Fetch caption text only for the IDs we actually need
+  const neededIds = [
+    ...new Set([
+      ...topCaptionIds.map(([id]) => id),
+      ...mostVotedIds.map(([id]) => id),
+    ]),
+  ];
+  let captionTexts: { id: string; content: string }[] = [];
+  if (neededIds.length > 0) {
+    const { data } = await supabase
       .from("captions")
       .select("id, content")
-      .in("id", mostVotedIds.map(([id]) => id));
-    mostVotedDetails = mostVotedIds.map(([id, voteCount]) => ({
-      id,
-      content: mvTexts?.find((c) => c.id === id)?.content ?? "—",
-      voteCount,
-      netScore: scoreMap[id] ?? 0,
-    }));
+      .in("id", neededIds);
+    captionTexts = data ?? [];
   }
+
+  const topCaptionDetails = topCaptionIds.map(([id, score]) => ({
+    id,
+    content: captionTexts.find((c) => c.id === id)?.content ?? "—",
+    score,
+  }));
+
+  const mostVotedDetails = mostVotedIds.map(([id, voteCount]) => ({
+    id,
+    content: captionTexts.find((c) => c.id === id)?.content ?? "—",
+    voteCount,
+    netScore: scoreMap[id] ?? 0,
+  }));
+
+  // Vote sentiment
+  const upvotes = allCaptionVotes.filter((v) => v.vote_value > 0).length;
+  const downvotes = allCaptionVotes.filter((v) => v.vote_value < 0).length;
+  const upvotePct =
+    upvotes + downvotes > 0
+      ? Math.round((upvotes / (upvotes + downvotes)) * 100)
+      : 0;
+
+  // Caption rating stats
+  const ratedCaptionIds = Object.keys(scoreMap);
+  const ratedCaptions = ratedCaptionIds.length;
+  const ratedPct =
+    (totalCaptions ?? 0) > 0
+      ? Math.round((ratedCaptions / (totalCaptions ?? 1)) * 100)
+      : 0;
+  const avgVotesPerRated =
+    ratedCaptions > 0 ? (totalVotes ?? 0) / ratedCaptions : 0;
+
+  // Score distribution among rated captions
+  const positiveCount = ratedCaptionIds.filter((id) => scoreMap[id] > 0).length;
+  const negativeCount = ratedCaptionIds.filter((id) => scoreMap[id] < 0).length;
+  const neutralCount = ratedCaptionIds.filter((id) => scoreMap[id] === 0).length;
 
   return {
     totalImages: totalImages ?? 0,
@@ -128,7 +179,7 @@ export default async function DashboardPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold text-white mb-2">Dashboard</h1>
-      <p className="text-gray-400 mb-8">Live stats from the Humor Project staging database</p>
+      <p className="text-gray-400 mb-8">Live stats from the Humor Project database</p>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
