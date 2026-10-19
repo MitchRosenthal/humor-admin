@@ -75,3 +75,6 @@ For full schema details, refer to Supabase dashboard → Table Editor.
   - Net score distribution (count of captions with positive, neutral, and negative net scores)
   - Most voted captions (top 3 by total vote volume, showing vote count and net score)
 - Consolidated data fetching: replaced three separate `caption_votes` queries with a single query (limit 5,000) that drives all stats computation. Also removed the `captions.select("author_id")` query that was only used for the author leaderboard.
+
+## Portfolio documentation update
+- Added root README with project scope, access requirements, and local setup prerequisites. No runtime or authorization changes.
