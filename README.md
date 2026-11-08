@@ -2,6 +2,8 @@
 
 Admin dashboard for the Humor Project caption platform. Admins sign in with Google and manage the images, captions and LLM configuration behind the caption generator, and see how captions are being rated. Built for Columbia's Humor Project course (spring 2026).
 
+**Live app: [humor-admin-orcin.vercel.app](https://humor-admin-orcin.vercel.app)** (restricted to course admins)
+
 ## Features
 
 - Google sign-in, with access limited to superadmins (checked in middleware and the dashboard layout)
